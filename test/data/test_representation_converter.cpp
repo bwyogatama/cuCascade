@@ -30,8 +30,8 @@
 #include <vector>
 
 using namespace cucascade;
+using cucascade::test::create_conversion_test_configs;
 using cucascade::test::create_simple_cudf_table;
-using cucascade::test::initialize_memory_for_conversions;
 using cucascade::test::mock_memory_space;
 
 // =============================================================================
@@ -70,41 +70,15 @@ class another_test_representation : public idata_representation {
   double _value;
 };
 
-// RAII guard to unregister custom test converters after each test
-// Note: We don't use clear() because it would remove builtin converters and
-// the static flag prevents re-registration
-class custom_converter_cleanup_guard {
- public:
-  ~custom_converter_cleanup_guard()
-  {
-    auto& registry = representation_converter_registry::instance();
-    // Unregister only the custom test converters
-    registry.unregister_converter<custom_test_representation, another_test_representation>();
-    registry.unregister_converter<another_test_representation, custom_test_representation>();
-  }
-};
-
 // =============================================================================
 // representation_converter_registry Registration Tests
 // =============================================================================
 
-TEST_CASE("representation_converter_registry singleton access", "[representation_converter]")
-{
-  custom_converter_cleanup_guard guard;
-
-  auto& registry1 = representation_converter_registry::instance();
-  auto& registry2 = representation_converter_registry::instance();
-
-  REQUIRE(&registry1 == &registry2);
-}
-
 TEST_CASE("representation_converter_registry register custom converter",
           "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   SECTION("Register a new converter succeeds")
   {
@@ -145,10 +119,8 @@ TEST_CASE("representation_converter_registry register custom converter",
 
 TEST_CASE("representation_converter_registry has_converter", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   SECTION("Returns false for unregistered converter")
   {
@@ -192,10 +164,8 @@ TEST_CASE("representation_converter_registry has_converter", "[representation_co
 TEST_CASE("representation_converter_registry has_converter_for runtime lookup",
           "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   registry.register_converter<custom_test_representation, another_test_representation>(
     [](idata_representation& source,
@@ -221,10 +191,8 @@ TEST_CASE("representation_converter_registry has_converter_for runtime lookup",
 
 TEST_CASE("representation_converter_registry unregister_converter", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   SECTION("Unregister returns false for non-existent converter")
   {
@@ -281,10 +249,8 @@ TEST_CASE("representation_converter_registry unregister_converter", "[representa
 TEST_CASE("representation_converter_registry convert with custom types",
           "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   // Register a converter that doubles the value
   registry.register_converter<custom_test_representation, another_test_representation>(
@@ -318,10 +284,8 @@ TEST_CASE("representation_converter_registry convert with custom types",
 
 TEST_CASE("representation_converter_registry convert with type_index", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   registry.register_converter<custom_test_representation, another_test_representation>(
     [](idata_representation& source,
@@ -359,11 +323,8 @@ TEST_CASE("representation_converter_registry convert with type_index", "[represe
 TEST_CASE("register_builtin_converters registers all expected converters",
           "[representation_converter][builtin]")
 {
-  // Note: This test relies on the builtin converters being registered.
-  // We don't clear them because they may be needed by other tests.
-  register_builtin_converters();
-
-  auto& registry = representation_converter_registry::instance();
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
 
   SECTION("GPU to HOST converter is registered")
   {
@@ -386,28 +347,16 @@ TEST_CASE("register_builtin_converters registers all expected converters",
   }
 }
 
-TEST_CASE("register_builtin_converters is idempotent", "[representation_converter][builtin]")
-{
-  // Calling register_builtin_converters multiple times should not throw
-  REQUIRE_NOTHROW(register_builtin_converters());
-  REQUIRE_NOTHROW(register_builtin_converters());
-  REQUIRE_NOTHROW(register_builtin_converters());
-
-  // Converters should still be there
-  auto& registry = representation_converter_registry::instance();
-  REQUIRE(registry.has_converter<gpu_table_representation, host_table_representation>());
-}
-
 // =============================================================================
 // Built-in Converter Functional Tests
 // =============================================================================
 
 TEST_CASE("Built-in GPU to HOST conversion works", "[representation_converter][builtin][gpu_host]")
 {
-  initialize_memory_for_conversions();
-  register_builtin_converters();
+  memory::memory_reservation_manager mgr(create_conversion_test_configs());
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
 
-  auto& mgr                              = memory::memory_reservation_manager::get_instance();
   const memory::memory_space* gpu_space  = mgr.get_memory_space(memory::Tier::GPU, 0);
   const memory::memory_space* host_space = mgr.get_memory_space(memory::Tier::HOST, 0);
 
@@ -416,7 +365,6 @@ TEST_CASE("Built-in GPU to HOST conversion works", "[representation_converter][b
                                     *const_cast<memory::memory_space*>(gpu_space));
 
   rmm::cuda_stream stream;
-  auto& registry = representation_converter_registry::instance();
 
   auto host_result = registry.convert<host_table_representation>(gpu_repr, host_space, stream);
   stream.synchronize();
@@ -428,10 +376,10 @@ TEST_CASE("Built-in GPU to HOST conversion works", "[representation_converter][b
 
 TEST_CASE("Built-in HOST to GPU conversion works", "[representation_converter][builtin][gpu_host]")
 {
-  initialize_memory_for_conversions();
-  register_builtin_converters();
+  memory::memory_reservation_manager mgr(create_conversion_test_configs());
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
 
-  auto& mgr                              = memory::memory_reservation_manager::get_instance();
   const memory::memory_space* gpu_space  = mgr.get_memory_space(memory::Tier::GPU, 0);
   const memory::memory_space* host_space = mgr.get_memory_space(memory::Tier::HOST, 0);
 
@@ -441,7 +389,6 @@ TEST_CASE("Built-in HOST to GPU conversion works", "[representation_converter][b
                                     *const_cast<memory::memory_space*>(gpu_space));
 
   rmm::cuda_stream stream;
-  auto& registry = representation_converter_registry::instance();
 
   auto host_repr = registry.convert<host_table_representation>(gpu_repr, host_space, stream);
   stream.synchronize();
@@ -458,10 +405,10 @@ TEST_CASE("Built-in HOST to GPU conversion works", "[representation_converter][b
 TEST_CASE("Built-in roundtrip GPU->HOST->GPU preserves data",
           "[representation_converter][builtin][roundtrip]")
 {
-  initialize_memory_for_conversions();
-  register_builtin_converters();
+  memory::memory_reservation_manager mgr(create_conversion_test_configs());
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
 
-  auto& mgr                              = memory::memory_reservation_manager::get_instance();
   const memory::memory_space* gpu_space  = mgr.get_memory_space(memory::Tier::GPU, 0);
   const memory::memory_space* host_space = mgr.get_memory_space(memory::Tier::HOST, 0);
 
@@ -470,7 +417,6 @@ TEST_CASE("Built-in roundtrip GPU->HOST->GPU preserves data",
                                          *const_cast<memory::memory_space*>(gpu_space));
 
   rmm::cuda_stream stream;
-  auto& registry = representation_converter_registry::instance();
 
   // GPU -> HOST
   auto host_repr = registry.convert<host_table_representation>(original_repr, host_space, stream);
@@ -492,12 +438,10 @@ TEST_CASE("Built-in roundtrip GPU->HOST->GPU preserves data",
 
 TEST_CASE("Converter preserves memory space properties", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
 
   mock_memory_space source_space(memory::Tier::GPU, 0);
   mock_memory_space target_space(memory::Tier::HOST, 1);
-
-  auto& registry = representation_converter_registry::instance();
 
   registry.register_converter<custom_test_representation, another_test_representation>(
     [](idata_representation& source,
@@ -519,10 +463,8 @@ TEST_CASE("Converter preserves memory space properties", "[representation_conver
 
 TEST_CASE("Multiple independent converters can coexist", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   // Register forward converter (custom -> another)
   registry.register_converter<custom_test_representation, another_test_representation>(
@@ -563,10 +505,8 @@ TEST_CASE("Multiple independent converters can coexist", "[representation_conver
 
 TEST_CASE("Converter error message includes type names", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
   custom_test_representation source(42, mock_space);
 
   try {
@@ -581,10 +521,8 @@ TEST_CASE("Converter error message includes type names", "[representation_conver
 
 TEST_CASE("Duplicate registration error message includes type names", "[representation_converter]")
 {
-  custom_converter_cleanup_guard guard;
+  representation_converter_registry registry;
   mock_memory_space mock_space(memory::Tier::GPU, 0);
-
-  auto& registry = representation_converter_registry::instance();
 
   registry.register_converter<custom_test_representation, another_test_representation>(
     [](idata_representation&,

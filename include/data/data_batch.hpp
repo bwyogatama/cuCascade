@@ -227,17 +227,19 @@ class data_batch {
    * @brief Convert the underlying representation to the target representation type.
    *        Requires no active processing.
    *
-   * Uses the representation_converter_registry to look up the appropriate converter
+   * Uses the provided representation_converter_registry to look up the appropriate converter
    * from the current representation type to the target type.
    *
    * @tparam TargetRepresentation The target idata_representation type to convert to
+   * @param registry The converter registry to use for looking up converters
    * @param target_memory_space The memory space where the new representation will be allocated
    * @param stream CUDA stream for memory operations
    * @throws std::runtime_error if no converter is registered for the type pair
    * @throws std::runtime_error if there is active processing on this batch
    */
   template <typename TargetRepresentation>
-  void convert_to(const cucascade::memory::memory_space* target_memory_space,
+  void convert_to(representation_converter_registry& registry,
+                  const cucascade::memory::memory_space* target_memory_space,
                   rmm::cuda_stream_view stream);
 
   /**
@@ -279,7 +281,8 @@ class data_batch {
 
 // Template implementation
 template <typename TargetRepresentation>
-void data_batch::convert_to(const cucascade::memory::memory_space* target_memory_space,
+void data_batch::convert_to(representation_converter_registry& registry,
+                            const cucascade::memory::memory_space* target_memory_space,
                             rmm::cuda_stream_view stream)
 {
   std::lock_guard<std::mutex> lock(_mutex);
@@ -288,7 +291,6 @@ void data_batch::convert_to(const cucascade::memory::memory_space* target_memory
     throw std::runtime_error("Cannot convert representation while there is active processing");
   }
 
-  auto& registry = representation_converter_registry::instance();
   auto new_representation =
     registry.convert<TargetRepresentation>(*_data, target_memory_space, stream);
   _data = std::move(new_representation);

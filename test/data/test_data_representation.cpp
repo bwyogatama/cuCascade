@@ -37,8 +37,8 @@
 #include <vector>
 
 using namespace cucascade;
+using cucascade::test::create_conversion_test_configs;
 using cucascade::test::create_simple_cudf_table;
-using cucascade::test::initialize_memory_for_conversions;
 using cucascade::test::mock_memory_space;
 
 // Note: Tests that require mock host_table_allocation are disabled because
@@ -77,8 +77,10 @@ TEST_CASE("host_table_representation device_id", "[cpu_data_representation][.dis
 TEST_CASE("host_table_representation converts to GPU and preserves contents",
           "[cpu_data_representation][gpu_data_representation]")
 {
-  initialize_memory_for_conversions();
-  auto& mgr                              = memory::memory_reservation_manager::get_instance();
+  memory::memory_reservation_manager mgr(create_conversion_test_configs());
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
+
   const memory::memory_space* host_space = mgr.get_memory_space(memory::Tier::HOST, 0);
   const memory::memory_space* gpu_space  = mgr.get_memory_space(memory::Tier::GPU, 0);
 
@@ -121,7 +123,6 @@ TEST_CASE("host_table_representation converts to GPU and preserves contents",
 
   // Convert to GPU and compare cudf tables
   auto gpu_stream = gpu_space->acquire_stream();
-  auto& registry  = representation_converter_registry::instance();
   auto gpu_any    = registry.convert<gpu_table_representation>(host_repr, gpu_space, pack_stream);
   pack_stream.synchronize();
   auto& gpu_repr = *gpu_any;
@@ -229,8 +230,10 @@ TEST_CASE("gpu_table_representation device_id", "[gpu_data_representation]")
 
 TEST_CASE("gpu->host->gpu roundtrip preserves cudf table contents", "[gpu_data_representation]")
 {
-  initialize_memory_for_conversions();
-  auto& mgr                              = memory::memory_reservation_manager::get_instance();
+  memory::memory_reservation_manager mgr(create_conversion_test_configs());
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
+
   const memory::memory_space* gpu_space  = mgr.get_memory_space(memory::Tier::GPU, 0);
   const memory::memory_space* host_space = mgr.get_memory_space(memory::Tier::HOST, 0);
 
@@ -239,7 +242,6 @@ TEST_CASE("gpu->host->gpu roundtrip preserves cudf table contents", "[gpu_data_r
 
   // Use one stream for both conversions to enforce order
   auto chain_stream = gpu_space->acquire_stream();
-  auto& registry    = representation_converter_registry::instance();
   auto cpu_any      = registry.convert<host_table_representation>(repr, host_space, chain_stream);
   auto gpu_any      = registry.convert<gpu_table_representation>(*cpu_any, gpu_space, chain_stream);
 
@@ -253,14 +255,14 @@ TEST_CASE("gpu->host->gpu roundtrip preserves cudf table contents", "[gpu_data_r
 // =============================================================================
 // Multi-GPU Cross-Device Conversion Test
 // =============================================================================
-static void initialize_multi_gpu_for_conversions(int dev_a, int dev_b)
+static std::unique_ptr<memory::memory_reservation_manager> create_multi_gpu_manager(int dev_a,
+                                                                                    int dev_b)
 {
   using namespace cucascade::memory;
-  memory_reservation_manager::reset_for_testing();
   std::vector<memory_reservation_manager::memory_space_config> configs;
   configs.emplace_back(Tier::GPU, dev_a, 2048ull * 1024 * 1024);
   configs.emplace_back(Tier::GPU, dev_b, 2048ull * 1024 * 1024);
-  memory_reservation_manager::initialize(std::move(configs));
+  return std::make_unique<memory_reservation_manager>(std::move(configs));
 }
 
 TEST_CASE("gpu cross-device conversion when multiple GPUs are available",
@@ -276,10 +278,12 @@ TEST_CASE("gpu cross-device conversion when multiple GPUs are available",
   int dev_src = 0;
   int dev_dst = 1;
 
-  initialize_multi_gpu_for_conversions(dev_src, dev_dst);
-  auto& mgr                             = memory::memory_reservation_manager::get_instance();
-  const memory::memory_space* src_space = mgr.get_memory_space(memory::Tier::GPU, dev_src);
-  const memory::memory_space* dst_space = mgr.get_memory_space(memory::Tier::GPU, dev_dst);
+  auto mgr = create_multi_gpu_manager(dev_src, dev_dst);
+  representation_converter_registry registry;
+  register_builtin_converters(registry);
+
+  const memory::memory_space* src_space = mgr->get_memory_space(memory::Tier::GPU, dev_src);
+  const memory::memory_space* dst_space = mgr->get_memory_space(memory::Tier::GPU, dev_dst);
   REQUIRE(src_space != nullptr);
   REQUIRE(dst_space != nullptr);
 
@@ -290,7 +294,6 @@ TEST_CASE("gpu cross-device conversion when multiple GPUs are available",
 
   // Use a single stream for the peer copy
   auto xfer_stream = src_space->acquire_stream();
-  auto& registry   = representation_converter_registry::instance();
   auto dst_any     = registry.convert<gpu_table_representation>(src_repr, dst_space, xfer_stream);
   auto& dst_repr   = *dst_any;
 

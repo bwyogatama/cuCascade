@@ -97,11 +97,17 @@ struct converter_key_hash {
 class representation_converter_registry {
  public:
   /**
-   * @brief Get the singleton instance of the converter registry.
-   *
-   * @return representation_converter_registry& Reference to the singleton registry
+   * @brief Construct an empty converter registry.
    */
-  static representation_converter_registry& instance();
+  representation_converter_registry() = default;
+
+  // Non-copyable, non-movable
+  representation_converter_registry(const representation_converter_registry&)            = delete;
+  representation_converter_registry& operator=(const representation_converter_registry&) = delete;
+  representation_converter_registry(representation_converter_registry&&)                 = delete;
+  representation_converter_registry& operator=(representation_converter_registry&&)      = delete;
+
+  ~representation_converter_registry() = default;
 
   /**
    * @brief Register a converter between two representation types.
@@ -225,8 +231,6 @@ class representation_converter_registry {
   void clear();
 
  private:
-  representation_converter_registry() = default;
-
   void register_converter_impl(const converter_key& key, representation_converter_fn converter);
   bool has_converter_impl(const converter_key& key) const;
   std::unique_ptr<idata_representation> convert_impl(
@@ -244,11 +248,10 @@ class representation_converter_registry {
  * @brief Initialize the built-in representation converters.
  *
  * This function registers the default converters between gpu_table_representation
- * and host_table_representation. It is called automatically when the library is loaded,
- * but can also be called explicitly if needed.
+ * and host_table_representation.
  *
- * Calling this function multiple times is safe - duplicate registrations are ignored.
+ * @param registry The converter registry to register converters with.
  */
-void register_builtin_converters();
+void register_builtin_converters(representation_converter_registry& registry);
 
 }  // namespace cucascade

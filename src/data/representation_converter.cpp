@@ -37,12 +37,6 @@ namespace cucascade {
 // representation_converter_registry implementation
 // =============================================================================
 
-representation_converter_registry& representation_converter_registry::instance()
-{
-  static representation_converter_registry instance;
-  return instance;
-}
-
 void representation_converter_registry::register_converter_impl(
   const converter_key& key, representation_converter_fn converter)
 {
@@ -308,17 +302,10 @@ std::unique_ptr<idata_representation> convert_host_to_host(
     std::move(host_table_allocation), const_cast<memory::memory_space*>(target_memory_space));
 }
 
-// Track whether built-in converters have been registered
-static bool builtin_converters_registered = false;
-
 }  // namespace
 
-void register_builtin_converters()
+void register_builtin_converters(representation_converter_registry& registry)
 {
-  if (builtin_converters_registered) { return; }
-
-  auto& registry = representation_converter_registry::instance();
-
   // GPU -> GPU (cross-device copy)
   registry.register_converter<gpu_table_representation, gpu_table_representation>(
     convert_gpu_to_gpu);
@@ -334,8 +321,6 @@ void register_builtin_converters()
   // HOST -> HOST (cross-device copy)
   registry.register_converter<host_table_representation, host_table_representation>(
     convert_host_to_host);
-
-  builtin_converters_registered = true;
 }
 
 }  // namespace cucascade

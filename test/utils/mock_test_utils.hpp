@@ -95,21 +95,20 @@ class mock_data_representation : private mock_memory_space_holder, public idata_
 };
 
 /**
- * @brief Initialize a minimal memory manager with one GPU(0) and one HOST(0) for conversion tests.
+ * @brief Create memory manager configs for conversion tests (one GPU(0) and one HOST(0)).
  *
- * This also registers the builtin converters needed for GPU <-> HOST conversions.
+ * @return std::vector<memory::memory_reservation_manager::memory_space_config> The configs
  */
-inline void initialize_memory_for_conversions()
+inline std::vector<memory::memory_reservation_manager::memory_space_config>
+create_conversion_test_configs()
 {
   using namespace cucascade::memory;
-  memory_reservation_manager::reset_for_testing();
   std::vector<memory_reservation_manager::memory_space_config> configs;
   configs.emplace_back(
     Tier::GPU, 0, 2048ull * 1024 * 1024, make_default_allocator_for_tier(Tier::GPU));
   configs.emplace_back(
     Tier::HOST, 0, 4096ull * 1024 * 1024, make_default_allocator_for_tier(Tier::HOST));
-  memory_reservation_manager::initialize(std::move(configs));
-  register_builtin_converters();
+  return configs;
 }
 
 /**

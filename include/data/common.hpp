@@ -68,6 +68,20 @@ class idata_representation {
   int get_device_id() const { return _memory_space.get_device_id(); }
 
   /**
+   * @brief Get the memory space where the data resides
+   *
+   * @return memory_space& Reference to the memory space
+   */
+  cucascade::memory::memory_space& get_memory_space() { return _memory_space; }
+
+  /**
+   * @brief Get the memory space where the data resides (const version)
+   *
+   * @return const memory_space& Const reference to the memory space
+   */
+  const cucascade::memory::memory_space& get_memory_space() const { return _memory_space; }
+
+  /**
    * @brief Get the size of the data representation in bytes
    *
    * @return std::size_t The number of bytes used to store this representation
